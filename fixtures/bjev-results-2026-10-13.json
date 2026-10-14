@@ -1,0 +1,254 @@
+{
+  "date": "2026-10-13",
+  "provider": "bjev",
+  "model": "bjev",
+  "threshold": 0.8,
+  "fixture": "fixtures/line-judgments.json",
+  "note": "Synthetic calibration/smoke samples, not a real-world accuracy estimate. Threshold chosen after inspecting both splits. One prose sample was skipped by the existing code/command guard.",
+  "trueJoins": 14,
+  "falseJoins": 0,
+  "missedJoins": 1,
+  "preservedBreaks": 15,
+  "results": [
+    {
+      "expectedJoin": true,
+      "index": 0,
+      "probability": 0.8832,
+      "seconds": 0.251,
+      "split": "development",
+      "actualJoin": true
+    },
+    {
+      "expectedJoin": true,
+      "index": 1,
+      "probability": 0.9279,
+      "seconds": 0.161,
+      "split": "development",
+      "actualJoin": true
+    },
+    {
+      "expectedJoin": true,
+      "index": 2,
+      "probability": 0.8043,
+      "seconds": 0.235,
+      "split": "development",
+      "actualJoin": true
+    },
+    {
+      "expectedJoin": true,
+      "index": 3,
+      "probability": 0.8875,
+      "seconds": 0.178,
+      "split": "development",
+      "actualJoin": true
+    },
+    {
+      "expectedJoin": true,
+      "index": 4,
+      "probability": 0.9048,
+      "seconds": 0.266,
+      "split": "development",
+      "actualJoin": true
+    },
+    {
+      "expectedJoin": true,
+      "index": 5,
+      "probability": 0.8143,
+      "seconds": 0.17,
+      "split": "development",
+      "actualJoin": true
+    },
+    {
+      "expectedJoin": false,
+      "index": 6,
+      "probability": 0.035,
+      "seconds": 0.174,
+      "split": "development",
+      "actualJoin": false
+    },
+    {
+      "expectedJoin": false,
+      "index": 7,
+      "probability": 0.0537,
+      "seconds": 0.222,
+      "split": "development",
+      "actualJoin": false
+    },
+    {
+      "expectedJoin": false,
+      "index": 8,
+      "probability": 0.14,
+      "seconds": 0.193,
+      "split": "development",
+      "actualJoin": false
+    },
+    {
+      "expectedJoin": false,
+      "index": 9,
+      "probability": 0.0819,
+      "seconds": 0.18,
+      "split": "development",
+      "actualJoin": false
+    },
+    {
+      "expectedJoin": false,
+      "index": 10,
+      "probability": 0.0165,
+      "seconds": 0.162,
+      "split": "development",
+      "actualJoin": false
+    },
+    {
+      "expectedJoin": false,
+      "index": 11,
+      "probability": 0.576,
+      "seconds": 0.157,
+      "split": "development",
+      "actualJoin": false
+    },
+    {
+      "expectedJoin": true,
+      "index": 12,
+      "probability": 0.8837,
+      "seconds": 0.251,
+      "split": "validation",
+      "actualJoin": true
+    },
+    {
+      "expectedJoin": true,
+      "index": 13,
+      "probability": 0.9144,
+      "seconds": 0.182,
+      "split": "validation",
+      "actualJoin": true
+    },
+    {
+      "expectedJoin": true,
+      "index": 14,
+      "probability": 0.9092,
+      "seconds": 0.181,
+      "split": "validation",
+      "actualJoin": true
+    },
+    {
+      "expectedJoin": true,
+      "index": 15,
+      "probability": 0.9222,
+      "seconds": 0.168,
+      "split": "validation",
+      "actualJoin": true
+    },
+    {
+      "expectedJoin": true,
+      "index": 16,
+      "protected": true,
+      "seconds": 0,
+      "split": "validation",
+      "actualJoin": false
+    },
+    {
+      "expectedJoin": true,
+      "index": 17,
+      "probability": 0.8974,
+      "seconds": 0.197,
+      "split": "validation",
+      "actualJoin": true
+    },
+    {
+      "expectedJoin": true,
+      "index": 18,
+      "probability": 0.8313,
+      "seconds": 0.21,
+      "split": "validation",
+      "actualJoin": true
+    },
+    {
+      "expectedJoin": true,
+      "index": 19,
+      "probability": 0.9007,
+      "seconds": 0.16,
+      "split": "validation",
+      "actualJoin": true
+    },
+    {
+      "expectedJoin": true,
+      "index": 20,
+      "probability": 0.9207,
+      "seconds": 0.161,
+      "split": "validation",
+      "actualJoin": true
+    },
+    {
+      "expectedJoin": false,
+      "index": 21,
+      "probability": 0.2302,
+      "seconds": 0.184,
+      "split": "validation",
+      "actualJoin": false
+    },
+    {
+      "expectedJoin": false,
+      "index": 22,
+      "probability": 0.1071,
+      "seconds": 0.174,
+      "split": "validation",
+      "actualJoin": false
+    },
+    {
+      "expectedJoin": false,
+      "index": 23,
+      "probability": 0.0196,
+      "seconds": 0.171,
+      "split": "validation",
+      "actualJoin": false
+    },
+    {
+      "expectedJoin": false,
+      "index": 24,
+      "probability": 0.0494,
+      "seconds": 0.157,
+      "split": "validation",
+      "actualJoin": false
+    },
+    {
+      "expectedJoin": false,
+      "index": 25,
+      "probability": 0.5602,
+      "seconds": 0.16,
+      "split": "validation",
+      "actualJoin": false
+    },
+    {
+      "expectedJoin": false,
+      "index": 26,
+      "probability": 0.0551,
+      "seconds": 0.154,
+      "split": "validation",
+      "actualJoin": false
+    },
+    {
+      "expectedJoin": false,
+      "index": 27,
+      "probability": 0.1374,
+      "seconds": 0.197,
+      "split": "validation",
+      "actualJoin": false
+    },
+    {
+      "expectedJoin": false,
+      "index": 28,
+      "probability": 0.0389,
+      "seconds": 0.158,
+      "split": "validation",
+      "actualJoin": false
+    },
+    {
+      "expectedJoin": false,
+      "index": 29,
+      "probability": 0.0936,
+      "seconds": 0.155,
+      "split": "validation",
+      "actualJoin": false
+    }
+  ]
+}
