@@ -35,7 +35,7 @@ The app polls every 300 ms with 50 ms timer tolerance. Actual latency can be lon
 2. Choose **Processing Method → Jev** or **Processing Method → bjev**, and enable **Automatically Join Wrapped Lines**.
 3. Copy new text and wait for the status to finish before pasting. Use **Restore Original Text** if needed.
 
-bjev uses the ByteDance internal service. Obtain its key from the playground's **API Key → Generate new API Key** flow described in the [bjev guide](https://bytedance.larkoffice.com/docx/S9rfdaW5zo9gZ1xPYfyc6dObnc9). Generating a replacement invalidates old bjev keys. An optional local backup belongs in `.secrets/` (ignored by version control), with directory mode 700 and file mode 600. The app reads imported keys from the keychain after import, not from the backup file.
+bjev uses the ByteDance internal service. Obtain its key from the playground's **API Key → Generate new API Key** flow. Generating a replacement invalidates old bjev keys. An optional local backup belongs in `.secrets/` (ignored by version control), with directory mode 700 and file mode 600. The app reads imported keys from the keychain after import, not from the backup file.
 
 For setup without copying a secret to the clipboard or shell arguments:
 
@@ -87,7 +87,7 @@ The providers share the same bounded request and deterministic reconstruction:
 | Provider | Endpoint | Model | Initial join threshold |
 | --- | --- | --- | --- |
 | Jev / TypeSafe | `https://api.typesafe.ai/v1/systemone` | `jev-1.13.0` | 0.98 |
-| bjev / ByteDance | `https://bjev.bytedance.net/v1/systemone` | `bjev` | 0.80 |
+| bjev / ByteDance | Internal service (configured in the app) | `bjev` | 0.80 |
 
 After local rules run, each remaining candidate newline gets one `noul` question asking whether the next line continues the same unfinished prose sentence. Questions share the original lines and IDs in one request. The response must match the selected provider's model, and every required answer must be a finite `noul` in [0, 1] before any change. Only values meeting that provider's threshold allow joining. These thresholds are decision policies, not accuracy guarantees. Jev's previous threshold remains unchanged.
 
