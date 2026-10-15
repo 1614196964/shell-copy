@@ -2,6 +2,77 @@ import XCTest
 @testable import ShellCopyCore
 
 final class LineNormalizerTests: XCTestCase {
+    func testWarpColonPreservesFirstBreakButJoinsLaterWrap() {
+        let first = "我需要写一个客群创编的skill 这是我之前梳理的客群skill原子能力："
+        let next = "notes/2026-09-24-segment-authoring-skill-research.md，你结合代码帮我出"
+        let last = "一个技术方案，使用AI unslop这个skill写作"
+        let input = first + "\n  " + next + "\n  " + last
+        let expected = first + "\n  " + next + last
+        XCTAssertEqual(LineNormalizer.normalize(input), expected)
+        XCTAssertEqual(LineNormalizer.normalize(expected), expected)
+    }
+
+    func testPartialJoinsPreserveProtectedBoundariesAndExactPadding() {
+        let first = "这份发布检查报告详细说明本次上线之前仍需核对的历史数据"
+        for prefix in ["", "  • ", "12) "] {
+            let padding = prefix.isEmpty ? "    " : String(repeating: " ", count: prefix.count)
+            let input = prefix + first + "\r\n" + padding + "校验结果：  \n" + padding + "另一项需要继续\r\n" + padding + "核对。\r\n"
+            let expected = prefix + first + "校验结果：  \n" + padding + "另一项需要继续核对。\r\n"
+            XCTAssertEqual(LineNormalizer.normalize(input), expected)
+            XCTAssertEqual(LineNormalizer.normalize(expected), expected)
+        }
+        let input = "• " + first + "：\r\n\t\t另一项需要继续\n\t    核对。"
+        XCTAssertEqual(LineNormalizer.normalize(input), "• " + first + "：\r\n\t\t另一项需要继续核对。")
+    }
+
+    func testProtectedPunctuationKeepsItsBreakWithoutBlockingLaterWraps() {
+        let first = "This detailed deployment report explains the remaining work for the next"
+        for punctuation in [".", "!", "?", ":", "。", "！", "？", "：", "；", "-", "—", "/", "=", "|", "]"] {
+            let beginning = first + punctuation + "  \r\n    Another paragraph still needs"
+            let expected = beginning + " verification."
+            XCTAssertEqual(LineNormalizer.normalize(beginning + "\n    verification."), expected)
+            XCTAssertEqual(LineNormalizer.normalize(expected), expected)
+        }
+    }
+
+    func testReportedBulletSelectionJoinsChineseWordAcrossWrap() {
+        let text = "当前必要修复：统一参与链路的加锁顺序。批量启停应在修改配置和业务表之前，按 ID 顺序获取全部 profile 锁；不能只给回调排序。同时核实并限制 MNS 等待时"
+        let continuation = "间、批次大小和并发数，补 MySQL 并发回归。"
+        for prefix in ["", "• ", "  • "] {
+            let input = prefix + text + "\n    " + continuation
+            XCTAssertEqual(LineNormalizer.normalize(input), prefix + text + continuation)
+        }
+    }
+
+    func testClippedChineseListSelectionPreservesMarkersAndLineEndings() {
+        let text = "这份发布检查报告详细说明本次上线之前仍需核对的历史数据"
+        for marker in ["• ", "- ", "* ", "+ ", "1. ", "12) ", "a) "] {
+            for indent in [4, 8] {
+                let padding = String(repeating: " ", count: indent)
+                let first = marker + text
+                let input = first + "\r\n" + padding + "校验结果以及\r\n" + padding + "迁移记录。\r\n\r\n• 下一项。\r\n"
+                let expected = first + "校验结果以及迁移记录。\r\n\r\n• 下一项。\r\n"
+                XCTAssertEqual(LineNormalizer.normalize(input), expected)
+                XCTAssertEqual(LineNormalizer.normalize(expected), expected)
+            }
+        }
+    }
+
+    func testClippedSelectionDoesNotRelaxOtherListBoundaries() {
+        let first = "• 这份发布检查报告详细说明本次上线之前仍需核对的历史数据"
+        let wrapped = first + "\n    校验结果。"
+        let samples = [
+            "标题\n" + wrapped, "标题\n\n" + wrapped, "\n" + wrapped,
+            "• 上一项。\n" + wrapped, "  " + first + "\n      校验结果。",
+            first + "。\n    单独一段。", "• 简短标题\n    单独一段。",
+            first + "\n    - 子列表", first + "\n    const value = 1",
+            first + "\n    列名\t值", first + "\n\n    单独一段。"
+        ]
+        for sample in samples { XCTAssertEqual(LineNormalizer.normalize(sample), sample) }
+        let input = first + "\n    校验结果\n      更深的段落。\n• 下一项。"
+        XCTAssertEqual(LineNormalizer.normalize(input), input)
+    }
+
     func testListWrapsPreserveHeadingsItemsAndBlankLines() {
         let first = "  • **KR1：**完善资产生产进度披露，优先覆盖数据集、指标创建及回溯链路，试点范围内关键生产节点可视覆盖率达"
         let second = "  • **KR2：**完善 Agent 长任务执行与恢复能力，核心故障回归用例全部通过，验证任务状态可追踪、重复请"

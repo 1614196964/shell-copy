@@ -3,6 +3,65 @@ import XCTest
 @testable import ShellCopyCore
 
 final class SystemOneNormalizerTests: XCTestCase {
+    func testWarpColonIsJudgedAfterLocalWrapJoinsInBothCloudModes() async throws {
+        let first = "我需要写一个客群创编的skill 这是我之前梳理的客群skill原子能力："
+        let next = "notes/2026-09-24-segment-authoring-skill-research.md，你结合代码帮我出"
+        let last = "一个技术方案，使用AI unslop这个skill写作"
+        for provider in CloudProvider.allCases {
+            for probability in [0.1, 1.0] {
+                var requests = 0
+                let session = makeSession { request in
+                    requests += 1
+                    let body = try XCTUnwrap(try JSONSerialization.jsonObject(with: Self.body(of: request)) as? [String: Any])
+                    let state = try XCTUnwrap(body["state"] as? [String: Any])
+                    let lines = try XCTUnwrap(state["lines"] as? [[String: String]])
+                    XCTAssertEqual(lines.map { $0["text"] }, [first, "  " + next + last])
+                    let questions = try XCTUnwrap(body["questions"] as? [String: Any])
+                    XCTAssertEqual(Set(questions.keys), ["join_1"])
+                    return (200, try JSONSerialization.data(withJSONObject: [
+                        "model": provider.model,
+                        "answers": ["join_1": ["type": "noul", "noul": probability]]
+                    ]))
+                }
+                defer { session.invalidateAndCancel() }
+                let result = try await SystemOneNormalizer(provider: provider, session: session)
+                    .normalize(first + "\n  " + next + "\n  " + last, apiKey: "synthetic-key")
+                XCTAssertEqual(requests, 1)
+                XCTAssertEqual(result, first + (probability == 1 ? "" : "\n  ") + next + last)
+            }
+        }
+    }
+
+    func testColonCandidatesStillProtectStructuredContent() throws {
+        for text in ["说明：\n- 第一项", "说明：\n  echo hello", "说明：\n  {\"key\":1}",
+                     "说明：\n\n另一段", "description:\n  value", "说明：\n\t缩进正文"] {
+            XCTAssertNil(LineJoinPlan(text))
+        }
+        for colon in [":", "："] {
+            let input = "The report explains the following" + colon + "\r\n  more checks."
+            let plan = try XCTUnwrap(LineJoinPlan(input))
+            XCTAssertEqual(plan.boundaries, [1])
+            XCTAssertEqual(try plan.applying(["join_1": answer(0)]), input)
+            XCTAssertEqual(try plan.applying(["join_1": answer(1)]),
+                           "The report explains the following" + colon + (colon == ":" ? " " : "") + "more checks.")
+        }
+    }
+
+    func testClippedBulletSelectionJoinsInBothCloudModesWithoutARequest() async throws {
+        let first = "• 当前必要修复：统一参与链路的加锁顺序。批量启停应在修改配置和业务表之前，按 ID 顺序获取全部 profile 锁；不能只给回调排序。同时核实并限制 MNS 等待时"
+        let next = "间、批次大小和并发数，补 MySQL 并发回归。"
+        for provider in CloudProvider.allCases {
+            let session = makeSession { _ in
+                XCTFail("Clipped list wraps should be resolved locally")
+                throw URLError(.badURL)
+            }
+            defer { session.invalidateAndCancel() }
+            let result = try await SystemOneNormalizer(provider: provider, session: session)
+                .normalize(first + "\n    " + next, apiKey: "synthetic-key")
+            XCTAssertEqual(result, first + next)
+        }
+    }
+
     func testListWrapsJoinLocallyInBothCloudModesWithoutSendingText() async throws {
         let first = "  • **KR3：**建立创编与 Oncall 场景的效果评测和发布回归机制，沉淀不少于 50 条真实需求及历史失败用例，覆盖正确性、任务完成率和执行耗时，核心 Skill 与"
         let next = "模型配置变更均完成回归验收。"

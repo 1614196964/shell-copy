@@ -28,6 +28,39 @@ final class ClipboardControllerTests: XCTestCase {
         XCTAssertTrue(pasteboard.setString(text, forType: .string))
     }
 
+    func testWarpPartialJoinAndRestorePreserveOriginalBreaks() {
+        let first = "我需要写一个客群创编的skill 这是我之前梳理的客群skill原子能力："
+        let next = "notes/2026-09-24-segment-authoring-skill-research.md，你结合代码帮我出"
+        let last = "一个技术方案，使用AI unslop这个skill写作"
+        let original = first + "\n  " + next + "\n  " + last
+        let controller = ClipboardController(pasteboard: pasteboard, defaults: defaults)
+        controller.setEnabled(true)
+        copy(original)
+        controller.poll()
+        XCTAssertEqual(pasteboard.string(forType: .string), first + "\n  " + next + last)
+        let count = pasteboard.changeCount
+        controller.poll()
+        XCTAssertEqual(pasteboard.changeCount, count)
+        XCTAssertTrue(controller.restoreOriginal())
+        XCTAssertEqual(pasteboard.string(forType: .string), original)
+    }
+
+    func testClippedBulletSelectionJoinsAndRestoresOriginal() {
+        let first = "• 当前必要修复：统一参与链路的加锁顺序。批量启停应在修改配置和业务表之前，按 ID 顺序获取全部 profile 锁；不能只给回调排序。同时核实并限制 MNS 等待时"
+        let next = "间、批次大小和并发数，补 MySQL 并发回归。"
+        let original = first + "\n    " + next
+        let controller = ClipboardController(pasteboard: pasteboard, defaults: defaults)
+        controller.setEnabled(true)
+        copy(original)
+        controller.poll()
+        XCTAssertEqual(pasteboard.string(forType: .string), first + next)
+        let count = pasteboard.changeCount
+        controller.poll()
+        XCTAssertEqual(pasteboard.changeCount, count)
+        XCTAssertTrue(controller.restoreOriginal())
+        XCTAssertEqual(pasteboard.string(forType: .string), original)
+    }
+
     func testProviderSelectionMigratesOldJevPreferenceAndPersistsEachChoice() {
         XCTAssertNil(ClipboardController(pasteboard: pasteboard, defaults: defaults).cloudProvider)
         defaults.set(true, forKey: ClipboardController.cloudEnabledKey)

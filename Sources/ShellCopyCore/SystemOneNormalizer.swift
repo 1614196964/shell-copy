@@ -116,8 +116,8 @@ struct LineJoinPlan {
             let type = "noul"
             let instructions: String
             let criteria = [
-                "true": "The next line continues the same unfinished prose sentence, split only by visual wrapping. This also applies to Chinese and mixed Chinese/English text.",
-                "false": "An intentional break: a new sentence, paragraph, heading, list item, table row, log record, or code. Related subject matter alone is not a reason to join."
+                "true": "The next line continues the same unfinished prose sentence, split only by visual wrapping. This also applies to Chinese and mixed Chinese/English text. A colon can occur within a wrapped sentence; join only if the context supports a visual wrap.",
+                "false": "An intentional break: a new sentence, paragraph, heading, list item, table row, log record, or code. A colon introducing a separate paragraph or block should keep its break. Related subject matter alone is not a reason to join."
             ]
         }
         let model: String
@@ -143,7 +143,7 @@ struct LineJoinPlan {
                     let left = lines[index - 1].body.trimmingCharacters(in: .whitespaces)
                     let right = lines[index].body.trimmingCharacters(in: .whitespaces)
                     guard let last = left.last, let head = right.first,
-                          !".!?。！？:：;；-—\\/=|{}[]".contains(last),
+                          !".!?。！？;；-—\\/=|{}[]".contains(last),
                           head.isLetter || head.isNumber || "（(“\"".contains(head) else { continue }
                     candidates.append(index)
                 }

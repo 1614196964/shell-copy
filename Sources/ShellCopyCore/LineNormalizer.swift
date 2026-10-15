@@ -14,14 +14,14 @@ public enum LineNormalizer {
         var block: [(body: String, ending: String)] = []
         for line in lines {
             if line.body.trimmingCharacters(in: .whitespaces).isEmpty {
-                result += normalizeBlock(block)
+                result += normalizeBlock(block, isStartOfCopy: result.isEmpty)
                 block.removeAll(keepingCapacity: true)
                 result += line.body + line.ending
             } else {
                 block.append(line)
             }
         }
-        return result + normalizeBlock(block)
+        return result + normalizeBlock(block, isStartOfCopy: result.isEmpty)
     }
 
     // Shared with Jev so surviving boundaries keep their exact spelling in either mode.
@@ -36,7 +36,7 @@ public enum LineNormalizer {
         return lines
     }
 
-    private static func normalizeBlock(_ lines: [(body: String, ending: String)]) -> String {
+    private static func normalizeBlock(_ lines: [(body: String, ending: String)], isStartOfCopy: Bool) -> String {
         var result = ""
         var index = 0
         var prose: [(body: String, ending: String)] = []
@@ -54,22 +54,38 @@ public enum LineNormalizer {
             let content = String(line.body[marker.upperBound...])
             var item = [(body: content, ending: line.ending)]
             var end = index + 1
+            var spaceIndent = prefix.count
+            // A selection starting at the marker can omit the first line's padding.
+            // Infer that offset only for the opening Chinese item, not later/nested items.
+            if isStartOfCopy, index == 0, prefix.first != " ",
+               content.contains(where: isCJK), end < lines.count {
+                let continuation = lines[end].body
+                let padding = continuation.prefix(while: { $0 == " " }).count
+                if padding > spaceIndent,
+                   continuation.dropFirst(padding).first.map(isCJK) == true {
+                    spaceIndent = padding
+                }
+            }
+            var hasInconsistentIndent = false
             while end < lines.count {
                 let continuation = lines[end].body
                 let padding = continuation.prefix(while: { $0 == " " || $0 == "\t" })
                 let body = String(continuation.dropFirst(padding.count))
                 // Space wraps align with the list text. Some terminal copies pad a
                 // Chinese continuation with tabs; allow only leading tabs in that case.
-                let aligned = padding.count == prefix.count && !padding.contains("\t")
+                let aligned = padding.count == spaceIndent && !padding.contains("\t")
                 let tabPaddedChinese = padding.contains("\t") &&
                     content.contains(where: isCJK) && body.first.map(isCJK) == true
-                guard aligned || tabPaddedChinese, !body.isEmpty,
-                      !isStructured(body) else { break }
-                item.append((body: "  " + body, ending: lines[end].ending))
+                guard !body.isEmpty, !isStructured(body) else { break }
+                guard aligned || tabPaddedChinese else {
+                    hasInconsistentIndent = spaceIndent != prefix.count && !padding.isEmpty
+                    break
+                }
+                item.append(lines[end])
                 end += 1
             }
             let prepared = item.map { $0.body + $0.ending }.joined()
-            let joined = normalizeProse(item)
+            let joined = hasInconsistentIndent ? prepared : normalizeProse(item, validatedListContinuations: true)
             if joined != prepared {
                 result += prefix + joined
             } else {
@@ -80,31 +96,45 @@ public enum LineNormalizer {
         return result + normalizeProse(prose)
     }
 
-    private static func normalizeProse(_ lines: [(body: String, ending: String)]) -> String {
+    private static func normalizeProse(_ lines: [(body: String, ending: String)],
+                                       validatedListContinuations: Bool = false) -> String {
         let original = lines.map { $0.body + $0.ending }.joined()
         guard lines.count > 1, let first = lines.first?.body,
               first.first != " ", first.first != "\t",
               displayWidth(first) >= 48, isProse(first),
-              !lines.contains(where: { isStructured($0.body) }) else { return original }
-
-        let indent = lines[1].body.prefix(while: { $0 == " " }).count
-        guard indent >= 2,
-              lines.dropFirst().allSatisfy({ line in
-                  line.body.prefix(while: { $0 == " " }).count == indent && !line.body.contains("\t")
+              !lines.contains(where: {
+                  isStructured(validatedListContinuations
+                               ? String($0.body.drop(while: { $0 == " " || $0 == "\t" })) : $0.body)
               }) else { return original }
 
+        let indent = lines[1].body.prefix(while: { $0 == " " }).count
+        guard validatedListContinuations || (indent >= 2 &&
+              lines.dropFirst().allSatisfy({ line in
+                  line.body.prefix(while: { $0 == " " }).count == indent && !line.body.contains("\t")
+              })) else { return original }
+
+        var result = ""
         var joined = first
-        for line in lines.dropFirst() {
-            let next = String(line.body.dropFirst(indent))
-            let left = joined.trimmingCharacters(in: .whitespaces)
+        for index in 1..<lines.count {
+            let line = lines[index]
+            let next = validatedListContinuations
+                ? String(line.body.drop(while: { $0 == " " || $0 == "\t" }))
+                : String(line.body.dropFirst(indent))
+            var left = joined
+            while left.last == " " { left.removeLast() }
             guard let last = left.last, let head = next.first,
                   !".!?。！？:：;；-—\\/=|{}[]".contains(last),
-                  head.isLetter || head.isNumber || "（(“\"".contains(head) else { return original }
+                  head.isLetter || head.isNumber || "（(“\"".contains(head) else {
+                // A protected boundary does not veto other wraps in the same block.
+                result += joined + lines[index - 1].ending
+                joined = line.body
+                continue
+            }
             // Preserve column spacing inside lines. Only the wrap boundary changes.
             let space = (isCJK(last) || isCJK(head) || "，、；：）”".contains(last)) ? "" : " "
             joined = left + space + next
         }
-        return joined + (lines.last?.ending ?? "")
+        return result + joined + (lines.last?.ending ?? "")
     }
 
     private static func isProse(_ text: String) -> Bool {
@@ -132,7 +162,7 @@ public enum LineNormalizer {
             #"^(?:at\s+\S+\(|Traceback\b|Caused by:|File \"|\w+(?:Error|Exception):)"#,
             #"^(?:let|var|const|func|def|class|import|from|return|if|else|for|while|switch|case|SELECT|INSERT|UPDATE|DELETE|WITH)\b"#,
             #"^(?:sudo|env|export|cd|ls|pwd|cat|echo|printf|grep|rg|find|sed|awk|curl|wget|git|ssh|scp|python\d*|node|npm|bash|zsh|sh|go|swift|make|docker|kubectl|chmod|rm|cp|mv|brew)\b"#,
-            #"^[A-Za-z_][A-Za-z0-9_.-]*\s*:\s"#, // YAML / labelled records
+            #"^[A-Za-z_][A-Za-z0-9_.-]*\s*:(?:\s|$)"#, // YAML / labelled records, including empty values
             #"^[A-Za-z_][A-Za-z0-9_]*\s+=\s"#,
             #"^[A-Za-z_][A-Za-z0-9_]*=[^\s]+(?:\s+[A-Za-z_][A-Za-z0-9_]*=[^\s]+)*$"#,
             #"(?:[{}]|;\s*$|\\\s*$|->|=>)"#
