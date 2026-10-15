@@ -5,6 +5,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem!
     private var controller: ClipboardController!
     private var timer: Timer?
+    private var updates: UpdateController!
     private var hasAPIKey = false
     private var keychainMessage: String?
     private var providerItems: [NSMenuItem] = []
@@ -16,6 +17,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = ApplicationMenu.make()
+        updates = UpdateController { [weak self] message in
+            NSApp.activate(ignoringOtherApps: true)
+            self?.showError(message)
+        }
         controller = ClipboardController(pasteboard: .general)
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         let icon = NSImage(systemSymbolName: "text.line.first.and.arrowtriangle.forward", accessibilityDescription: "Shell Copy")
@@ -53,6 +58,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let versionItem = NSMenuItem(title: "Shell Copy \(version)", action: nil, keyEquivalent: "")
         versionItem.isEnabled = false
         menu.addItem(versionItem)
+        menu.addItem(updates.checkItem)
+        menu.addItem(updates.automaticItem)
         let quit = NSMenuItem(title: "Quit Shell Copy", action: #selector(quitApp), keyEquivalent: "")
         quit.target = self
         menu.addItem(quit)
@@ -64,6 +71,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         timer.tolerance = 0.05
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
+        updates.start()
     }
 
     private func addProviderItem(_ title: String, value: String, to menu: NSMenu) {
@@ -77,6 +85,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func menuWillOpen(_ menu: NSMenu) { updateMenu() }
 
     private func updateMenu() {
+        updates.refreshMenu()
         let provider = controller.cloudProvider
         automaticItem.state = controller.isEnabled ? .on : .off
         providerItem.title = "Processing Method: " + (provider?.name ?? "Local Rules")
