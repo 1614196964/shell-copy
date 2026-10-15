@@ -72,14 +72,14 @@ Within an eligible prose block or list item, punctuation protects only its own b
 For example, with 32 spaces before the second line:
 
 ```text
-useDag=0 直接物化 Hive    临时升级环境下通过，存在交付限制。 7377/429330 成功 11 人；7378/429331 Hive 成功后因 COUNT=0 失败。但依赖临时 Base64 模板和测试 JAR，验收后恢复了原模板，不能算永久启用
-                                完成。
+示例段落    这是一段用于演示文本换行合并的虚构内容。当终端窗口宽度不足时，一句话可能被折成多行，复制后需要将这些片段重新连接，才能得到完整的
+                                句子。
 ```
 
 becomes:
 
 ```text
-useDag=0 直接物化 Hive    临时升级环境下通过，存在交付限制。 7377/429330 成功 11 人；7378/429331 Hive 成功后因 COUNT=0 失败。但依赖临时 Base64 模板和测试 JAR，验收后恢复了原模板，不能算永久启用完成。
+示例段落    这是一段用于演示文本换行合并的虚构内容。当终端窗口宽度不足时，一句话可能被折成多行，复制后需要将这些片段重新连接，才能得到完整的句子。
 ```
 
 The fences above illustrate the clipboard content; copying the fences themselves intentionally prevents conversion. These rules are structural, not matched to the example's wording. Independent Chinese and English examples are covered by tests.
