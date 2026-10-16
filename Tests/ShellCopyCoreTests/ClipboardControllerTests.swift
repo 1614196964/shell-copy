@@ -28,6 +28,40 @@ final class ClipboardControllerTests: XCTestCase {
         XCTAssertTrue(pasteboard.setString(text, forType: .string))
     }
 
+    @MainActor
+    func testDiagnosticsDistinguishLocalCompletionFromLowCloudScore() async throws {
+        for usesCloud in [false, true] {
+            let controller = ClipboardController(pasteboard: pasteboard, defaults: defaults,
+                cloudNormalize: { text in
+                    if usesCloud {
+                        return NormalizationReport(text: text, localJoins: 0, provider: .bjev,
+                            scores: [.init(nextLine: 2, score: 0.79)], noRequestReason: nil)
+                    }
+                    return try await SystemOneNormalizer(provider: .bjev).normalizeWithReport(text, apiKey: "synthetic-key")
+                })
+            controller.setEnabled(true)
+            controller.setProvider(.bjev)
+            copy(usesCloud ? "We need\nmore checks." : wrapped)
+            let finished = expectation(description: "diagnostics ready")
+            controller.onStateChange = { if !controller.isProcessing { finished.fulfill() } }
+            controller.poll()
+            await fulfillment(of: [finished], timeout: 1)
+            controller.onStateChange = nil
+            XCTAssertEqual(controller.cloudMessage, usesCloud
+                ? "bjev returned: 0/1 joins; local: 0."
+                : "Local rules: 1 joins; bjev not requested.")
+            XCTAssertTrue(controller.diagnosticDetails.contains { $0.hasPrefix("Processing time: ") })
+            XCTAssertTrue(controller.diagnosticDetails.contains(usesCloud ? "Clipboard unchanged." : "Result written to clipboard."))
+            if usesCloud {
+                XCTAssertTrue(controller.diagnosticDetails.contains("Lines 1–2: 0.79 → keep break"))
+            }
+            copy("new single line")
+            controller.setProvider(nil)
+            XCTAssertTrue(controller.diagnosticDetails.isEmpty)
+            XCTAssertNil(controller.cloudMessage)
+        }
+    }
+
     func testWarpPartialJoinAndRestorePreserveOriginalBreaks() {
         let first = "我需要写一个客群创编的skill 这是我之前梳理的客群skill原子能力："
         let next = "notes/2026-09-24-segment-authoring-skill-research.md，你结合代码帮我出"
@@ -307,6 +341,8 @@ final class ClipboardControllerTests: XCTestCase {
         controller.onStateChange = nil
         XCTAssertEqual(pasteboard.string(forType: .string), "new copy")
         XCTAssertFalse(controller.canRestore)
+        XCTAssertNil(controller.cloudMessage)
+        XCTAssertTrue(controller.diagnosticDetails.isEmpty)
     }
 
     @MainActor
@@ -393,6 +429,8 @@ final class ClipboardControllerTests: XCTestCase {
         XCTAssertEqual(pasteboard.changeCount, count)
         XCTAssertEqual(pasteboard.string(forType: .string), wrapped)
         XCTAssertEqual(controller.cloudMessage, "Jev: " + JudgmentError.timedOut.localizedDescription)
+        XCTAssertTrue(controller.diagnosticDetails.contains("Local fallback disabled."))
+        XCTAssertTrue(controller.diagnosticDetails.contains { $0.hasPrefix("Processing time: ") })
         XCTAssertFalse(controller.canRestore)
     }
 
@@ -438,6 +476,8 @@ final class ClipboardControllerTests: XCTestCase {
         XCTAssertEqual(pasteboard.changeCount, count)
         XCTAssertEqual(pasteboard.string(forType: .string), wrapped)
         XCTAssertEqual(controller.cloudMessage, "Jev: " + JudgmentError.timedOut.localizedDescription)
+        XCTAssertTrue(controller.diagnosticDetails.contains("Local fallback disabled."))
+        XCTAssertTrue(controller.diagnosticDetails.contains { $0.hasPrefix("Processing time: ") })
         XCTAssertFalse(controller.canRestore)
     }
 
@@ -462,6 +502,8 @@ final class ClipboardControllerTests: XCTestCase {
         controller.onStateChange = nil
         XCTAssertEqual(pasteboard.string(forType: .string), first + next)
         XCTAssertEqual(controller.cloudMessage, "Jev: The service blocks this region (HTTP 451). Joined using local rules.")
+        XCTAssertTrue(controller.diagnosticDetails.contains("Local fallback enabled; joins: 1"))
+        XCTAssertTrue(controller.diagnosticDetails.contains { $0.hasPrefix("Processing time: ") })
         XCTAssertTrue(controller.restoreOriginal())
         XCTAssertEqual(pasteboard.string(forType: .string), input)
         controller.poll()
@@ -536,11 +578,12 @@ private final class CloudGate {
     let started: XCTestExpectation
     private var continuation: CheckedContinuation<String, Error>?
     init(started: XCTestExpectation) { self.started = started }
-    func run(_ text: String) async throws -> String {
-        try await withCheckedThrowingContinuation { continuation in
+    func run(_ text: String) async throws -> NormalizationReport {
+        let result: String = try await withCheckedThrowingContinuation { continuation in
             self.continuation = continuation
             started.fulfill()
         }
+        return NormalizationReport(text: result, localJoins: 0, provider: .jev, scores: [], noRequestReason: nil)
     }
     func reply(_ result: Result<String, Error>) {
         continuation!.resume(with: result)

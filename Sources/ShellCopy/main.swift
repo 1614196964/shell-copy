@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let providerItem = NSMenuItem(title: "Processing Method", action: nil, keyEquivalent: "")
     private let fallbackItem = NSMenuItem(title: "Use Local Rules If AI Fails", action: #selector(toggleLocalFallback), keyEquivalent: "")
     private let cloudStatusItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    private let diagnosticsItem = NSMenuItem(title: "Last Copy Details", action: nil, keyEquivalent: "")
     private let restoreItem = NSMenuItem(title: "Restore Original Text", action: #selector(restore), keyEquivalent: "")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -51,6 +52,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         menu.addItem(cloudStatusItem)
         cloudStatusItem.isEnabled = false
+        menu.addItem(diagnosticsItem)
         menu.addItem(.separator())
         menu.addItem(restoreItem)
         menu.addItem(.separator())
@@ -110,8 +112,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 cloudStatusItem.title = "\(provider.name) ready. Copy new text to check it."
             }
         } else {
-            cloudStatusItem.title = "Local rules only."
+            cloudStatusItem.title = controller.cloudMessage ?? "Local rules only."
         }
+        let details = NSMenu()
+        details.autoenablesItems = false
+        for row in controller.diagnosticDetails {
+            let item = NSMenuItem(title: row, action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            details.addItem(item)
+        }
+        diagnosticsItem.submenu = details
+        diagnosticsItem.isEnabled = !controller.diagnosticDetails.isEmpty
         statusItem.button?.toolTip = "Shell Copy — " + cloudStatusItem.title
     }
 
@@ -131,7 +142,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             if let provider = controller.cloudProvider, let key = try APIKeyStore.load(for: provider) {
                 hasAPIKey = true
                 let normalizer = SystemOneNormalizer(provider: provider)
-                controller.setCloudNormalizer { text in try await normalizer.normalize(text, apiKey: key) }
+                controller.setCloudNormalizer { text in try await normalizer.normalizeWithReport(text, apiKey: key) }
             } else {
                 controller.setCloudNormalizer(nil)
             }

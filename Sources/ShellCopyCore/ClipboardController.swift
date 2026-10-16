@@ -12,20 +12,21 @@ public final class ClipboardController {
     public private(set) var isLocalFallbackEnabled: Bool
     public private(set) var isProcessing = false
     public private(set) var cloudMessage: String?
+    public private(set) var diagnosticDetails: [String] = []
     public var canRestore: Bool { original != nil && pasteboard.changeCount == observedCount }
     public var onStateChange: (() -> Void)?
 
     private let pasteboard: NSPasteboard
     private let defaults: UserDefaults
     private let normalize: (String) -> String
-    private var cloudNormalize: ((String) async throws -> String)?
+    private var cloudNormalize: ((String) async throws -> NormalizationReport)?
     private var pending: Task<Void, Never>?
     private var requestID: UUID?
     private var observedCount: Int
     private var original: [(NSPasteboard.PasteboardType, Data)]?
 
     public init(pasteboard: NSPasteboard, defaults: UserDefaults = .standard,
-                cloudNormalize: ((String) async throws -> String)? = nil,
+                cloudNormalize: ((String) async throws -> NormalizationReport)? = nil,
                 normalize: @escaping (String) -> String = LineNormalizer.normalize) {
         self.pasteboard = pasteboard
         self.defaults = defaults
@@ -62,7 +63,7 @@ public final class ClipboardController {
         resetBaseline()
     }
 
-    public func setCloudNormalizer(_ normalizer: ((String) async throws -> String)?) {
+    public func setCloudNormalizer(_ normalizer: ((String) async throws -> NormalizationReport)?) {
         cloudNormalize = normalizer
         resetBaseline()
     }
@@ -86,6 +87,7 @@ public final class ClipboardController {
         requestID = nil
         isProcessing = false
         cloudMessage = nil
+        diagnosticDetails = []
     }
 
     public func poll() {
@@ -95,11 +97,21 @@ public final class ClipboardController {
         observedCount = count
         original = nil
         defer { onStateChange?() }
-        guard isEnabled, let snapshot = readEligibleItem(),
+        guard isEnabled else { return }
+        guard let snapshot = readEligibleItem(),
               let text = pasteboard.string(forType: .string), text.utf8.count <= 1_048_576,
-              pasteboard.changeCount == count else { return }
+              pasteboard.changeCount == count else {
+            cloudMessage = "Copy skipped; no cloud request."
+            diagnosticDetails = ["Unsupported clipboard format, size limit, or clipboard changed during read."]
+            return
+        }
         if !isCloudEnabled {
-            apply(normalize(text), to: text, snapshot: snapshot, count: count)
+            let clock = ContinuousClock()
+            let started = clock.now
+            let joined = normalize(text)
+            let changed = apply(joined, to: text, snapshot: snapshot, count: count)
+            cloudMessage = changed ? "Local rules joined wrapped lines; no cloud request." : "Local rules kept text unchanged; no cloud request."
+            diagnosticDetails = ["Local joins: \(NormalizationReport.joinCount(from: text, to: joined))", timing(started.duration(to: clock.now))]
             return
         }
         guard let cloudNormalize else {
@@ -110,9 +122,10 @@ public final class ClipboardController {
         requestID = id
         isProcessing = true
         let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(SystemOneNormalizer.timeout))
+        let started = clock.now
+        let deadline = started.advanced(by: .seconds(SystemOneNormalizer.timeout))
         pending = Task { @MainActor [weak self] in
-            let result: Result<String, Error>
+            let result: Result<NormalizationReport, Error>
             do {
                 try Task.checkCancellation()
                 result = .success(try await cloudNormalize(text))
@@ -128,24 +141,46 @@ public final class ClipboardController {
             guard self.isEnabled, self.isCloudEnabled, self.pasteboard.changeCount == count else { return }
             guard clock.now <= deadline else {
                 self.handleCloudFailure(.timedOut, text: text, snapshot: snapshot, count: count)
+                self.diagnosticDetails.append("Processing deadline exceeded; response discarded.")
+                self.diagnosticDetails.append(self.timing(started.duration(to: clock.now)))
                 return
             }
             switch result {
-            case .success(let joined):
-                let changed = self.apply(joined, to: text, snapshot: snapshot, count: count)
-                self.cloudMessage = changed ? "Wrapped lines joined." : "Original text kept."
+            case .success(let report):
+                let changed = self.apply(report.text, to: text, snapshot: snapshot, count: count)
+                self.cloudMessage = report.summary
+                self.diagnosticDetails = report.details
+                self.diagnosticDetails.append(changed ? "Result written to clipboard." :
+                    (report.text == text ? "Clipboard unchanged." : "Result not written; clipboard changed or write failed."))
             case .failure(let error):
                 // Do not expose server bodies, clipboard data, or credentials in errors.
                 self.handleCloudFailure(error as? JudgmentError ?? .unavailable,
                                         text: text, snapshot: snapshot, count: count)
             }
+            self.diagnosticDetails.append(self.timing(started.duration(to: clock.now)))
         }
+    }
+
+    private func timing(_ duration: Duration) -> String {
+        let parts = duration.components
+        let milliseconds = Double(parts.seconds) * 1_000 + Double(parts.attoseconds) / 1e15
+        return String(format: "Processing time: %.0f ms", milliseconds)
     }
 
     private func handleCloudFailure(_ error: JudgmentError, text: String,
                                     snapshot: [(NSPasteboard.PasteboardType, Data)], count: Int) {
         let reason = (cloudProvider?.name ?? "Cloud") + ": " + error.failureReason
-        if isLocalFallbackEnabled, apply(normalize(text), to: text, snapshot: snapshot, count: count) {
+        diagnosticDetails = [reason]
+        if case .missingAPIKey = error {
+            diagnosticDetails.append("Cloud request not sent: missing key.")
+        } else {
+            diagnosticDetails.append("Cloud processing failed; no cloud judgment applied.")
+        }
+        let fallback = isLocalFallbackEnabled ? normalize(text) : text
+        diagnosticDetails.append(isLocalFallbackEnabled
+            ? "Local fallback enabled; joins: \(NormalizationReport.joinCount(from: text, to: fallback))"
+            : "Local fallback disabled.")
+        if isLocalFallbackEnabled, apply(fallback, to: text, snapshot: snapshot, count: count) {
             cloudMessage = reason + ". Joined using local rules."
         } else {
             cloudMessage = reason + ". Original text kept."

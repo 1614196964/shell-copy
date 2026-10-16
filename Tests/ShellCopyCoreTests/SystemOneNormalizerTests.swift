@@ -3,6 +3,74 @@ import XCTest
 @testable import ShellCopyCore
 
 final class SystemOneNormalizerTests: XCTestCase {
+    func testReportIncludesActualScoresAndThresholdDecisions() async throws {
+        for provider in CloudProvider.allCases {
+            let session = makeSession { _ in
+                (200, try JSONSerialization.data(withJSONObject: [
+                    "model": provider.model,
+                    "answers": [
+                        "join_3": ["type": "noul", "noul": 0.7999],
+                        "join_4": ["type": "noul", "noul": provider.joinThreshold]
+                    ]
+                ]))
+            }
+            defer { session.invalidateAndCancel() }
+            let opening = "This detailed deployment report explains the remaining work for the next"
+            let input = opening + "\n  release.\n\nWe need\nmore checks\nbefore launch."
+            let report = try await SystemOneNormalizer(provider: provider, session: session)
+                .normalizeWithReport(input, apiKey: "synthetic-key")
+            XCTAssertEqual(report.localJoins, 1)
+            XCTAssertNil(report.noRequestReason)
+            XCTAssertEqual(report.scores.map(\.nextLine), [4, 5])
+            XCTAssertEqual(report.scores.map(\.score), [0.7999, provider.joinThreshold])
+            XCTAssertEqual(report.text, opening + " release.\n\nWe need\nmore checks before launch.")
+            XCTAssertEqual(report.summary, "\(provider.name) returned: 1/2 joins; local: 1.")
+            XCTAssertTrue(report.details.contains("Lines 3–4: 0.7999 → keep break"))
+            XCTAssertFalse(report.details.joined().contains("synthetic-key"))
+            XCTAssertFalse(report.details.joined().contains("We need"))
+        }
+    }
+
+    func testReportExplainsWhyCloudWasNotRequested() async throws {
+        let opening = "This detailed deployment report explains the remaining work for the next"
+        let samples: [(String, String, Int)] = [
+            (opening + "\n  release.", "No remaining line breaks.", 1),
+            ("Title\n\nParagraph.", "No eligible wrap boundaries.", 0),
+            ("```\ncode\n```", "Protected text or code fence.", 0),
+            (String(repeating: "x", count: 12_289) + "\ny", "Text exceeds 12 KiB.", 0),
+            (Array(repeating: "word", count: 66).joined(separator: "\n"), "More than 64 candidate boundaries.", 0)
+        ]
+        let session = makeSession { _ in
+            XCTFail("Skipped requests must never reach the network")
+            throw URLError(.badURL)
+        }
+        defer { session.invalidateAndCancel() }
+        for (input, reason, joins) in samples {
+            let report = try await SystemOneNormalizer(provider: .bjev, session: session)
+                .normalizeWithReport(input, apiKey: "synthetic-key")
+            XCTAssertEqual(report.noRequestReason, reason)
+            XCTAssertEqual(report.localJoins, joins)
+            XCTAssertTrue(report.scores.isEmpty)
+            XCTAssertEqual(report.summary, "Local rules: \(joins) joins; bjev not requested.")
+        }
+    }
+
+    func testCopyPaddingJoinsLaterParagraphsLocallyInBothCloudModes() async throws {
+        let first = "这份发布检查报告详细说明本次上线之前仍需核对的历史数据"
+        let input = first + "\n  校验结果。\n\n  " + first + "\n  校验结果。"
+        let expected = first + "校验结果。\n\n  " + first + "校验结果。"
+        for provider in CloudProvider.allCases {
+            let session = makeSession { _ in
+                XCTFail("Copy padding should be resolved locally without sending text")
+                throw URLError(.badURL)
+            }
+            defer { session.invalidateAndCancel() }
+            let result = try await SystemOneNormalizer(provider: provider, session: session)
+                .normalize(input, apiKey: "synthetic-key")
+            XCTAssertEqual(result, expected)
+        }
+    }
+
     func testWarpColonIsJudgedAfterLocalWrapJoinsInBothCloudModes() async throws {
         let first = "我需要写一个客群创编的skill 这是我之前梳理的客群skill原子能力："
         let next = "notes/2026-09-24-segment-authoring-skill-research.md，你结合代码帮我出"

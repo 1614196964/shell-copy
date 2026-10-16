@@ -47,11 +47,20 @@ public final class SystemOneNormalizer {
     deinit { session.invalidateAndCancel() }
 
     public func normalize(_ text: String, apiKey: String) async throws -> String {
+        try await normalizeWithReport(text, apiKey: apiKey).text
+    }
+
+    public func normalizeWithReport(_ text: String, apiKey: String) async throws -> NormalizationReport {
         try Task.checkCancellation()
         // Resolve wraps covered by the local rules before asking about ambiguous boundaries.
         // Complete sentences elsewhere in a line can otherwise cause cloud false negatives.
         let locallyJoined = LineNormalizer.normalize(text)
-        guard let plan = LineJoinPlan(locallyJoined) else { return locallyJoined }
+        let localJoins = NormalizationReport.joinCount(from: text, to: locallyJoined)
+        var noRequestReason: String?
+        guard let plan = LineJoinPlan(locallyJoined, onSkip: { noRequestReason = $0 }) else {
+            return NormalizationReport(text: locallyJoined, localJoins: localJoins, provider: provider,
+                                       scores: [], noRequestReason: noRequestReason)
+        }
         let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty, !key.contains("\r"), !key.contains("\n") else { throw JudgmentError.missingAPIKey }
         var request = URLRequest(url: provider.endpoint,
@@ -83,7 +92,12 @@ public final class SystemOneNormalizer {
         guard data.count <= 65_536,
               let result = try? JSONDecoder().decode(SystemOneResponse.self, from: data),
               result.model == provider.model else { throw JudgmentError.invalidResponse }
-        return try plan.applying(result.answers, threshold: provider.joinThreshold)
+        let joined = try plan.applying(result.answers, threshold: provider.joinThreshold)
+        let scores = plan.boundaries.map {
+            NormalizationReport.BoundaryScore(nextLine: $0 + 1, score: result.answers["join_\($0)"]!.noul)
+        }
+        return NormalizationReport(text: joined, localJoins: localJoins, provider: provider,
+                                   scores: scores, noRequestReason: nil)
     }
 }
 
@@ -128,10 +142,13 @@ struct LineJoinPlan {
     let lines: [(body: String, ending: String)]
     let boundaries: [Int] // Index of the line after each candidate newline.
 
-    init?(_ text: String) {
+    init?(_ text: String, onSkip: (String) -> Void = { _ in }) {
         // Bound both context and question costs. Oversized copies get no cloud changes.
-        guard text.utf8.count <= 12_288, text.utf8.contains(10),
-              !text.contains("\0"), !text.contains("```"), !text.contains("~~~") else { return nil }
+        guard text.utf8.count <= 12_288 else { onSkip("Text exceeds 12 KiB."); return nil }
+        guard text.utf8.contains(10) else { onSkip("No remaining line breaks."); return nil }
+        guard !text.contains("\0"), !text.contains("```"), !text.contains("~~~") else {
+            onSkip("Protected text or code fence."); return nil
+        }
         lines = LineNormalizer.splitLines(text)
         var candidates: [Int] = []
         var start = 0
@@ -150,7 +167,8 @@ struct LineJoinPlan {
             }
             start = end + 1
         }
-        guard !candidates.isEmpty, candidates.count <= 64 else { return nil }
+        guard !candidates.isEmpty else { onSkip("No eligible wrap boundaries."); return nil }
+        guard candidates.count <= 64 else { onSkip("More than 64 candidate boundaries."); return nil }
         boundaries = candidates
     }
 

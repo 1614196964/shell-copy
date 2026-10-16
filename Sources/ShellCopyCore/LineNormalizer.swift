@@ -10,18 +10,24 @@ public enum LineNormalizer {
               !text.contains("```"), !text.contains("~~~") else { return text }
 
         let lines = splitLines(text)
+        // A terminal selection can omit the opening line's padding while keeping
+        // it on every later paragraph. Infer padding only from a proven prose wrap.
+        let openingBlock = Array(lines.prefix { !$0.body.trimmingCharacters(in: .whitespaces).isEmpty })
+        let openingText = openingBlock.map { $0.body + $0.ending }.joined()
+        let copyIndent = normalizeProse(openingBlock) != openingText
+            ? openingBlock[1].body.prefix(while: { $0 == " " }).count : nil
         var result = ""
         var block: [(body: String, ending: String)] = []
         for line in lines {
             if line.body.trimmingCharacters(in: .whitespaces).isEmpty {
-                result += normalizeBlock(block, isStartOfCopy: result.isEmpty)
+                result += normalizeBlock(block, isStartOfCopy: result.isEmpty, copyIndent: copyIndent)
                 block.removeAll(keepingCapacity: true)
                 result += line.body + line.ending
             } else {
                 block.append(line)
             }
         }
-        return result + normalizeBlock(block, isStartOfCopy: result.isEmpty)
+        return result + normalizeBlock(block, isStartOfCopy: result.isEmpty, copyIndent: copyIndent)
     }
 
     // Shared with Jev so surviving boundaries keep their exact spelling in either mode.
@@ -36,7 +42,7 @@ public enum LineNormalizer {
         return lines
     }
 
-    private static func normalizeBlock(_ lines: [(body: String, ending: String)], isStartOfCopy: Bool) -> String {
+    private static func normalizeBlock(_ lines: [(body: String, ending: String)], isStartOfCopy: Bool, copyIndent: Int?) -> String {
         var result = ""
         var index = 0
         var prose: [(body: String, ending: String)] = []
@@ -48,7 +54,7 @@ public enum LineNormalizer {
                 index += 1
                 continue
             }
-            result += normalizeProse(prose)
+            result += normalizeProse(prose, copyIndent: copyIndent)
             prose.removeAll(keepingCapacity: true)
             let prefix = String(line.body[marker])
             let content = String(line.body[marker.upperBound...])
@@ -93,13 +99,20 @@ public enum LineNormalizer {
             }
             index = end
         }
-        return result + normalizeProse(prose)
+        return result + normalizeProse(prose, copyIndent: copyIndent)
     }
 
     private static func normalizeProse(_ lines: [(body: String, ending: String)],
-                                       validatedListContinuations: Bool = false) -> String {
+                                       validatedListContinuations: Bool = false, copyIndent: Int? = nil) -> String {
         let original = lines.map { $0.body + $0.ending }.joined()
-        guard lines.count > 1, let first = lines.first?.body,
+        guard lines.count > 1, var first = lines.first?.body else { return original }
+        var prefix = ""
+        if let copyIndent, copyIndent >= 2,
+           lines.allSatisfy({ $0.body.prefix(while: { $0 == " " }).count == copyIndent }) {
+            prefix = String(first.prefix(copyIndent))
+            first = String(first.dropFirst(copyIndent))
+        }
+        guard
               first.first != " ", first.first != "\t",
               displayWidth(first) >= 48, isProse(first),
               !lines.contains(where: {
@@ -134,7 +147,7 @@ public enum LineNormalizer {
             let space = (isCJK(last) || isCJK(head) || "，、；：）”".contains(last)) ? "" : " "
             joined = left + space + next
         }
-        return result + joined + (lines.last?.ending ?? "")
+        return prefix + result + joined + (lines.last?.ending ?? "")
     }
 
     private static func isProse(_ text: String) -> Bool {

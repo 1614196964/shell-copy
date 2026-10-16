@@ -2,6 +2,57 @@ import XCTest
 @testable import ShellCopyCore
 
 final class LineNormalizerTests: XCTestCase {
+    func testReportedLoadTestParagraphsJoinWithoutRemovingParagraphBreaks() {
+        let first = "CDP 侧已完成本轮压测：对 cg.cdp.thrift.GetSegmentData 发压，通过客群 23142 查询标签 102987，按该标签配置，最终调用下游"
+        let next = "ad.ecp.uni_prom.HitDouble11Promotion 接口。"
+        let second = "本轮从 50 QPS 起步，每阶段 30 秒、递增 50 QPS，最高达到约 500 QPS，执行约 6 分 40 秒，累计请求约 10.9 万次，成功率 100%，平均耗时 12.35 ms，P99 为"
+        let tail = "24.25 ms，CDP 侧未观察到明显性能异常。"
+        let last = "  下游可核对 10 月 16 日 14:12:50–14:19:30 的接口流量、错误率及资源监控，确认无异常后按计划安排上线。"
+        let input = first + "\n  " + next + "\n\n  " + second + "\n  " + tail + "\n\n" + last
+        let expected = first + next + "\n\n  " + second + tail + "\n\n" + last
+        XCTAssertEqual(LineNormalizer.normalize(input), expected)
+        XCTAssertEqual(LineNormalizer.normalize(expected), expected)
+    }
+
+    func testLaterParagraphWithCopyPadding() {
+        let first = "这份发布检查报告详细说明本次上线之前仍需核对的历史数据"
+        let input = first + "\n  校验结果。\n\n  " + first + "\n  校验结果。"
+        XCTAssertEqual(LineNormalizer.normalize(input), first + "校验结果。\n\n  " + first + "校验结果。")
+    }
+
+    func testCopyPaddingPreservesProtectedBoundariesAndLineEndings() {
+        let first = "This detailed deployment report explains the remaining work for the next"
+        for count in [2, 4, 8] {
+            let pad = String(repeating: " ", count: count)
+            let opening = first + "\r\n" + pad + "release.\r\n  \r\n"
+            let paragraph = pad + first + ":  \r\n" + pad + "Another check needs\n" + pad + "verification.\r\n"
+            let expected = first + " release.\r\n  \r\n" + pad + first + ":  \r\n" + pad + "Another check needs verification.\r\n"
+            XCTAssertEqual(LineNormalizer.normalize(opening + paragraph), expected)
+            XCTAssertEqual(LineNormalizer.normalize(expected), expected)
+        }
+    }
+
+    func testCopyPaddingDoesNotRelaxStandaloneNestedOrStructuredBlocks() {
+        let first = "This detailed deployment report explains the remaining work for the next"
+        let opening = first + "\n  release.\n\n"
+        let normalizedOpening = first + " release.\n\n"
+        for paragraph in [
+            "  " + first + "\n    nested paragraph.",
+            "    " + first + "\n    different padding.",
+            "  " + first + "\n  echo hello",
+            "  " + first + "\n  column\tvalue",
+            "  " + first + "\n  - nested item",
+            "  " + first + ".\n  Separate sentence.",
+            "  Short title\n  explanation."
+        ] {
+            XCTAssertEqual(LineNormalizer.normalize(opening + paragraph), normalizedOpening + paragraph)
+        }
+        let paragraph = "  " + first + "\n  release."
+        for prefix in ["", "Heading\n\n", first + ".\n  Separate sentence.\n\n", "• " + first + "\n  release.\n\n"] {
+            XCTAssertTrue(LineNormalizer.normalize(prefix + paragraph).hasSuffix(paragraph))
+        }
+    }
+
     func testWarpColonPreservesFirstBreakButJoinsLaterWrap() {
         let first = "我需要写一个客群创编的skill 这是我之前梳理的客群skill原子能力："
         let next = "notes/2026-09-24-segment-authoring-skill-research.md，你结合代码帮我出"
